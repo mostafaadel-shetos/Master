@@ -64,10 +64,12 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+        import { getAnalytics } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics.js';
         import { Users, Search, Map as MapIcon, List, Filter, Mail, Phone, Briefcase, MapPin, Activity, UserCircle, Download, Upload, Building, UserCheck, Moon, Sun, Eye, EyeOff, X, Calendar, GraduationCap, Truck, MessageCircle, Hash, Heart, User, ChevronRight, BarChart3, ChevronDown, Edit2, Trash2, Save, PlusCircle, Database, LayoutGrid, CheckSquare, Square, PieChart, UserX, Clock, Shirt, Footprints, Home, WifiOff } from 'https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0';
         import { PieChart as RePieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from 'https://esm.sh/recharts@2.12.3?deps=react@18.2.0,react-dom@18.2.0';
 
         // --- FIREBASE CONFIG ---
+        // Forced usage of your specific project config
         const FIREBASE_CONFIG = {
             apiKey: "AIzaSyAJfMGnjV6xnN1ObOJjK7blBK0fCR0NZZk",
             authDomain: "tempomaster1-18ac4.firebaseapp.com",
@@ -80,10 +82,12 @@
 
         let db = null;
         let auth = null;
+        let analytics = null;
         try {
             const app = initializeApp(FIREBASE_CONFIG);
             db = getFirestore(app);
             auth = getAuth(app);
+            analytics = getAnalytics(app);
             console.log("Firebase initialized successfully");
         } catch (e) {
             console.error("Firebase Init Error:", e);
@@ -1356,22 +1360,21 @@
           };
 
           useEffect(() => {
+            // Guard: Do not attempt fetch until user is authenticated
+            if (!user || !db) return;
+
             setLoading(true);
-            if (db) {
-                const unsubscribe = onSnapshot(collection(db, "employees"), (snapshot) => {
-                    const fbData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(emp => !emp.deleted); 
-                    if (fbData.length > 0) setData(fbData);
-                    else setData(prev => prev.length > 0 ? prev : INITIAL_DATA);
-                    setLoading(false);
-                }, (error) => { 
-                    console.error("Firebase Snapshot Error:", error); 
-                    setLoading(false); 
-                });
-                return () => unsubscribe();
-            } else { 
+            // Using root "employees" collection (Standard manual setup)
+            const unsubscribe = onSnapshot(collection(db, "employees"), (snapshot) => {
+                const fbData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(emp => !emp.deleted); 
+                if (fbData.length > 0) setData(fbData);
+                else setData(prev => prev.length > 0 ? prev : INITIAL_DATA);
+                setLoading(false);
+            }, (error) => { 
+                console.error("Firebase Snapshot Error:", error); 
                 setLoading(false); 
-                setData(INITIAL_DATA); 
-            }
+            });
+            return () => unsubscribe();
           }, [user]);
 
           const handleDelete = (id) => { setDeleteConfirm(id); };
@@ -1381,8 +1384,9 @@
                 // Optimistic UI update
                 setData(prev => prev.filter(e => e.id !== deleteConfirm));
                 
-                if (db) {
+                if (db && user) {
                     try {
+                        // Root collection
                         await setDoc(doc(db, "employees", deleteConfirm), { deleted: true, status: "Terminated" }, { merge: true });
                     } catch (err) {
                         console.warn("Backend delete failed:", err.message);
@@ -1407,14 +1411,16 @@
                setData(prev => prev.map(e => e.id === originalId ? updatedEmployee : e));
             }
             
-            if (db) {
+            if (db && user) {
                 try {
                     const isIdChanged = originalId && originalId !== newId;
                     if (isIdChanged && originalId && !originalId.toString().startsWith('NEW-')) {
+                       // Root collection
                        await deleteDoc(doc(db, "employees", originalId));
                     }
                     const { id, deleted, ...cleanData } = JSON.parse(JSON.stringify(updatedEmployee));
                     cleanData.id = newId;
+                    // Root collection
                     await setDoc(doc(db, "employees", newId), cleanData, { merge: true });
                 } catch (err) {
                     console.warn("Backend save failed:", err.message);
